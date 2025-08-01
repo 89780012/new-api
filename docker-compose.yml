@@ -6,8 +6,8 @@ services:
     container_name: new-api
     restart: always
     command: --log-dir /app/logs
-    ports:
-      - "3000:3000"
+    expose:
+      - 3000
     volumes:
       - "../files/newapi_data:/data"
       - "../files/newapi_logs:/app/logs"
@@ -30,11 +30,21 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    networks:
+      - dokploy-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.newapi-front.rule=Host(`newapi.xiaonuo.cc`)"
+      - "traefik.http.routers.newapi-front.entrypoints=websecure"
+      - "traefik.http.routers.newapi-front.tls.certResolver=letsencrypt"
+      - "traefik.http.services.newapi-front.loadbalancer.server.port=3000"
 
   redis:
     image: redis:latest
     container_name: redis
     restart: always
+    networks:
+      - dokploy-network
 
   mysql:
     image: mysql:8.2
@@ -47,4 +57,8 @@ services:
       - "../files/newapi_mysql_data:/var/lib/mysql"
     # ports:
     #   - "3306:3306"  # If you want to access MySQL from outside Docker, uncomment
-
+    networks:
+      - dokploy-network
+networks:
+  dokploy-network:
+    external: true
