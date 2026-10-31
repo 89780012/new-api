@@ -125,6 +125,13 @@ export function SidebarModulesCard() {
           description: t('Balance and top-up management'),
         },
         {
+          key: 'referrals',
+          title: t('My invited users'),
+          description: t(
+            'Only users who registered through your referral link are shown.'
+          ),
+        },
+        {
           key: 'personal',
           title: t('Personal Settings'),
           description: t('Personal info settings'),

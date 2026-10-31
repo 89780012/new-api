@@ -104,7 +104,7 @@ describe('security sidebar visibility', () => {
       result.current
         .find((group) => group.id === 'personal')
         ?.items.map((item) => item.title)
-    ).toEqual(['Wallet', 'Profile', 'Security & Access'])
+    ).toEqual(['Wallet', 'My invited users', 'Profile', 'Security & Access'])
     expect(
       result.current
         .flatMap((group) => group.items)
@@ -139,6 +139,50 @@ describe('security sidebar visibility', () => {
         .some((item) => item.title === 'Security & Access')
     ).toBe(true)
   })
+})
+
+describe('invited users sidebar entry', () => {
+  it('legacy settings show invited users next to Wallet as a direct link', () => {
+    const { result } = sidebarFor(
+      { personal: { enabled: true, topup: true } },
+      { personal: { enabled: true, personal: true } }
+    )
+    const items =
+      result.current.find((group) => group.id === 'personal')?.items ?? []
+    const walletIndex = items.findIndex((item) => item.title === 'Wallet')
+    expect(items[walletIndex + 1]).toMatchObject({
+      title: 'My invited users',
+      url: '/referrals',
+    })
+    expect(
+      items
+        .filter((item) => checkIsActive('/referrals', item))
+        .map((item) => item.title)
+    ).toEqual(['My invited users'])
+  })
+
+  it('hiding Wallet keeps invited users visible independently', () => {
+    const { result } = sidebarFor({ personal: { enabled: true, topup: false } })
+    const titles = result.current
+      .flatMap((group) => group.items)
+      .map((item) => item.title)
+    expect(titles).not.toContain('Wallet')
+    expect(titles).toContain('My invited users')
+  })
+
+  it.each([
+    [{ personal: { enabled: true, referrals: false } }, undefined],
+    [undefined, { personal: { enabled: true, referrals: false } }],
+    [{ personal: { enabled: false } }, undefined],
+  ])(
+    'sidebar visibility settings hide invited users (%j, %j)',
+    (admin, user) => {
+      const { result } = sidebarFor(admin, user)
+      expect(
+        result.current.flatMap((group) => group.items).map((item) => item.title)
+      ).not.toContain('My invited users')
+    }
+  )
 })
 
 describe('audit log sidebar entry', () => {

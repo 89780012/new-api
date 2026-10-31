@@ -442,6 +442,26 @@ func TransferAffQuota(c *gin.Context) {
 	common.ApiSuccessT(c, "Transfer successful", nil)
 }
 
+func GetInvitedUsers(c *gin.Context) {
+	identity, ok := requireBrowserSession(c)
+	if !ok {
+		return
+	}
+	page := common.GetPageQuery(c)
+	page.Page = max(1, page.Page)
+	page.PageSize = max(1, page.PageSize)
+	// Prevent a malicious page number from overflowing the SQL offset.
+	page.Page = min(page.Page, int(^uint(0)>>1)/page.PageSize)
+	users, total, err := model.GetInvitedUsers(identity.UserID, page)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	page.SetTotal(int(total))
+	page.SetItems(users)
+	common.ApiSuccess(c, page)
+}
+
 func GetAffCode(c *gin.Context) {
 	id := c.GetInt("id")
 	user, err := model.GetUserById(id, true)

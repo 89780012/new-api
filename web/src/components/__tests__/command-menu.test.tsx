@@ -103,7 +103,13 @@ test('regular users only find their own console pages in search', async () => {
   const entries = await searchEntriesFor(ROLE.USER)
 
   expect(entries).toEqual(
-    expect.arrayContaining(['API Keys', 'Usage Logs', 'Wallet', 'Profile'])
+    expect.arrayContaining([
+      'API Keys',
+      'Usage Logs',
+      'Wallet',
+      'My invited users',
+      'Profile',
+    ])
   )
   for (const entry of [...adminEntries, ...superAdminEntries]) {
     expect(entries).not.toContain(entry)

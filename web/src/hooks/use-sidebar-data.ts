@@ -117,6 +117,11 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
             icon: Wallet,
           },
           {
+            title: t('My invited users'),
+            url: '/referrals',
+            icon: Users,
+          },
+          {
             title: t('Profile'),
             url: '/profile',
             icon: User,

@@ -724,3 +724,131 @@ func TestUpdateUserSettingKeepsWhatTheRequestLeavesOut(t *testing.T) {
 		})
 	}
 }
+
+// The invitation endpoint shares the dashboard authentication chain and must
+// derive ownership from that identity, never from request parameters.
+func TestInvitedUsersOwnershipAndPagination(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	gin.SetMode(gin.TestMode)
+	owner := model.User{Username: "invite-owner", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AuthVersion: 1}
+	other := model.User{Username: "other-inviter", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AuthVersion: 1}
+	for _, user := range []*model.User{&owner, &other} {
+		user.AffCode = user.Username
+		require.NoError(t, db.Create(user).Error)
+		require.NoError(t, model.PublishUserAuthCache(user.Id))
+	}
+	invitees := []model.User{
+		{Username: "first-invitee", DisplayName: "First", InviterId: owner.Id, Email: "private@example.com", Password: "private-hash", CreatedAt: 1700000000},
+		{Username: "second-invitee", DisplayName: "Second", InviterId: owner.Id, CreatedAt: 1700000100},
+		{Username: "other-invitee", InviterId: other.Id},
+		{Username: "deleted-invitee", InviterId: owner.Id},
+	}
+	for i := range invitees {
+		invitees[i].AffCode = invitees[i].Username
+		require.NoError(t, db.Create(&invitees[i]).Error)
+	}
+	require.NoError(t, db.Delete(&invitees[3]).Error)
+	router := gin.New()
+	router.GET("/api/user/self/invites", middleware.DisableCache(), middleware.UserAuth(), GetInvitedUsers)
+	for _, tc := range []struct {
+		name    string
+		userID  int
+		query   string
+		wantIDs []int
+		total   int
+	}{
+		{"owner first page ignores forged identity", owner.Id, fmt.Sprintf("?p=1&page_size=1&user_id=%d&inviter_id=%d&id=%d", other.Id, other.Id, other.Id), []int{invitees[1].Id}, 2},
+		{"owner second page", owner.Id, "?p=2&page_size=1", []int{invitees[0].Id}, 2},
+		{"other account sees only its invitations", other.Id, "", []int{invitees[2].Id}, 1},
+		{"invitee with no invitations", invitees[0].Id, "", []int{}, 0},
+		{"negative pagination stays bounded", owner.Id, "?p=-1&page_size=-1", []int{invitees[1].Id}, 2},
+		{"oversized page size is capped", owner.Id, "?page_size=1000", []int{invitees[1].Id, invitees[0].Id}, 2},
+		{"out of range page is empty", owner.Id, "?p=3&page_size=1", []int{}, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.userID == invitees[0].Id {
+				require.NoError(t, db.Model(&model.User{}).Where("id = ?", tc.userID).Updates(map[string]any{"role": common.RoleCommonUser, "status": common.UserStatusEnabled, "auth_version": 1}).Error)
+				require.NoError(t, model.PublishUserAuthCache(tc.userID))
+			}
+			bundle, err := service.CreateLoginSession(tc.userID, "password", "127.0.0.1", "invite-test")
+			require.NoError(t, err)
+			request := httptest.NewRequest(http.MethodGet, "/api/user/self/invites"+tc.query, nil)
+			request.Header.Set("Authorization", "Bearer "+bundle.AccessToken)
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, request)
+			require.Equal(t, http.StatusOK, recorder.Code)
+			assert.Contains(t, recorder.Header().Get("Cache-Control"), "no-store")
+			var result struct {
+				Success bool `json:"success"`
+				Data    struct {
+					Items    []map[string]any `json:"items"`
+					Total    int              `json:"total"`
+					PageSize int              `json:"page_size"`
+				} `json:"data"`
+			}
+			require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &result))
+			require.True(t, result.Success, recorder.Body.String())
+			assert.Equal(t, tc.total, result.Data.Total)
+			require.NotNil(t, result.Data.Items)
+			require.Len(t, result.Data.Items, len(tc.wantIDs))
+			assert.GreaterOrEqual(t, result.Data.PageSize, 1)
+			assert.LessOrEqual(t, result.Data.PageSize, 100)
+			for i, item := range result.Data.Items {
+				assert.EqualValues(t, tc.wantIDs[i], item["id"])
+				assert.Len(t, item, 4, "only id, username, display_name, and created_at may be exposed")
+				assert.Contains(t, item, "username")
+				assert.Contains(t, item, "display_name")
+				assert.Contains(t, item, "created_at")
+			}
+		})
+	}
+}
+
+func TestInvitedUsersRejectsMissingOrInvalidLoginSession(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/api/user/self/invites", middleware.DisableCache(), middleware.UserAuth(), GetInvitedUsers)
+	for _, state := range []string{"anonymous", "invalid-token", "expired", "revoked", "disabled"} {
+		t.Run(state, func(t *testing.T) {
+			var token string
+			if state == "invalid-token" {
+				token = "invalid-invite-token"
+			} else if state != "anonymous" {
+				user := model.User{Username: "inviter-" + state, Role: common.RoleCommonUser, Status: common.UserStatusEnabled, AuthVersion: 1}
+				user.AffCode = user.Username
+				require.NoError(t, db.Create(&user).Error)
+				require.NoError(t, model.PublishUserAuthCache(user.Id))
+				bundle, err := service.CreateLoginSession(user.Id, "password", "127.0.0.1", "invite-test")
+				require.NoError(t, err)
+				token = bundle.AccessToken
+				identity, err := service.ParseAccessToken(token)
+				require.NoError(t, err)
+				switch state {
+				case "expired":
+					require.NoError(t, db.Model(&model.UserSession{}).Where("sid = ?", identity.SessionID).Update("expires_at", time.Now().Unix()-1).Error)
+				case "revoked":
+					require.NoError(t, db.Model(&model.UserSession{}).Where("sid = ?", identity.SessionID).Update("status", model.UserSessionStatusRevoked).Error)
+				case "disabled":
+					require.NoError(t, db.Model(&model.User{}).Where("id = ?", user.Id).Update("status", common.UserStatusDisabled).Error)
+					require.NoError(t, model.PublishUserAuthCache(user.Id))
+				}
+			}
+			request := httptest.NewRequest(http.MethodGet, "/api/user/self/invites?inviter_id=1", nil)
+			if token != "" {
+				request.Header.Set("Authorization", "Bearer "+token)
+			}
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, request)
+			assert.Equal(t, http.StatusUnauthorized, recorder.Code)
+			assert.NotContains(t, recorder.Body.String(), `"items"`)
+		})
+	}
+	// Even a pre-authenticated context without a browser session is rejected.
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Set("id", 1)
+	GetInvitedUsers(c)
+	assert.Equal(t, http.StatusForbidden, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "AUTH_SESSION_REQUIRED")
+}
