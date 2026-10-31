@@ -19,6 +19,22 @@ For commercial licensing, please contact support@quantumnous.com
 // Static translation keys that don't get picked up by the t('...') regex.
 // These cover dynamic labels (e.g. constants, configs) that are passed into t at runtime.
 export const STATIC_I18N_KEYS = [
+  // Recharge rebate API, status reasons, and form validation.
+  'A reversal reason of at most 200 characters is required',
+  'Choose a valid date range of at most 366 days',
+  'Insufficient balance to reverse this rebate',
+  'Invalid rebate policy',
+  'Invalid rebate record',
+  'Invalid rebate settings',
+  'Invalid rebate status',
+  'Only credited rebates can be reversed',
+  'Payment conversion snapshot is unavailable',
+  'Rebate amount exceeds the wallet limit',
+  'Rebate rate must be greater than 0% and at most 100% when enabled',
+  'Recipient account is unavailable',
+  'Recipient wallet limit reached',
+  'Use at most two decimal places',
+
   'Operational',
   'Degraded',
   'The adjusted price is outside the supported range.',

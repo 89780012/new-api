@@ -44,3 +44,114 @@ export async function getInvitedUsers(
   }>('/api/user/self/invites', { params: { p: page, page_size: pageSize } })
   return requireServerSuccess(response.data).data
 }
+
+export interface RebateEntry {
+  id: number
+  trade_no: string
+  inviter_id: number
+  inviter_name: string
+  payer_id: number
+  payer_name: string
+  paid_money: string
+  currency: string
+  rate_bps: number
+  rebate_quota: number
+  balance_before: number | null
+  balance_after: number | null
+  status: string
+  kind: string
+  reason: string
+  original_id: number
+  created_at: number
+  credited_at: number
+}
+
+export interface RebateFilters {
+  start_date?: string
+  end_date?: string
+  payer_id?: string
+  inviter_id?: string
+  status?: string
+}
+
+export interface RebateDaily {
+  day: string
+  inviter_id: number
+  inviter_name: string
+  currency: string
+  paid_money: string
+  rebate_quota: string
+  pending_quota: string
+  count: number
+  recipients: number
+}
+
+interface RebatePage<T> {
+  items: T[]
+  total: number
+  summary?: RebateDaily[]
+}
+
+export interface RebatePolicy {
+  enabled: boolean
+  rate_bps: number
+  version: number
+}
+
+export async function getRebates(
+  admin: boolean,
+  filters: RebateFilters,
+  page: number,
+  pageSize: number
+): Promise<RebatePage<RebateEntry>> {
+  const response = await api.get<{
+    success: boolean
+    data: RebatePage<RebateEntry>
+  }>(admin ? '/api/referral-rebates' : '/api/user/self/referral-rebates', {
+    params: { ...filters, p: page, page_size: pageSize },
+  })
+  return requireServerSuccess(response.data).data
+}
+
+export async function getDailyRebates(
+  filters: RebateFilters,
+  page: number,
+  pageSize: number
+): Promise<RebatePage<RebateDaily>> {
+  const response = await api.get<{
+    success: boolean
+    data: RebatePage<RebateDaily>
+  }>('/api/referral-rebates/daily', {
+    params: { ...filters, p: page, page_size: pageSize },
+  })
+  return requireServerSuccess(response.data).data
+}
+
+export async function getRebatePolicy(): Promise<RebatePolicy> {
+  const response = await api.get<{ success: boolean; data: RebatePolicy }>(
+    '/api/referral-rebates/settings'
+  )
+  return requireServerSuccess(response.data).data
+}
+
+export async function saveRebatePolicy(
+  policy: Pick<RebatePolicy, 'enabled' | 'rate_bps'>
+): Promise<RebatePolicy> {
+  const response = await api.put<{ success: boolean; data: RebatePolicy }>(
+    '/api/referral-rebates/settings',
+    policy
+  )
+  return requireServerSuccess(response.data).data
+}
+
+export async function retryRebate(id: number): Promise<void> {
+  const response = await api.post(`/api/referral-rebates/${id}/retry`)
+  requireServerSuccess(response.data)
+}
+
+export async function reverseRebate(id: number, reason: string): Promise<void> {
+  const response = await api.post(`/api/referral-rebates/${id}/reverse`, {
+    reason,
+  })
+  requireServerSuccess(response.data)
+}

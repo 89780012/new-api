@@ -144,6 +144,10 @@ export function SidebarModulesSection({
       },
     },
     admin: {
+      referral_rebates: {
+        title: t('Recharge rebates'),
+        description: t('Rebate records'),
+      },
       channel: {
         title: t('Channels'),
         description: t('Configure upstream providers and routing.'),

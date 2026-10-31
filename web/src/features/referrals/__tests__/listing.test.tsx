@@ -25,13 +25,17 @@ import {
 } from '@tanstack/react-router'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import i18next from 'i18next'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
+import { toIntlLocale } from '@/i18n/languages'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { Referrals } from '..'
 import type { InvitedUser } from '../api'
+import { RebateLedger } from '../components/rebate-ledger'
+import { InvitedUsers } from '../invited-users'
+import { formatRebateTimestamp } from '../money'
 
 const clients: QueryClient[] = []
 const invitee: InvitedUser = {
@@ -51,13 +55,15 @@ function response(items: InvitedUser[], total = items.length) {
   }
 }
 
-async function renderPage() {
+async function renderPage(ledger = false) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
   clients.push(client)
   const router = createRouter({
-    routeTree: createRootRoute({ component: Referrals }),
+    routeTree: createRootRoute({
+      component: ledger ? RebateLedger : InvitedUsers,
+    }),
     history: createMemoryHistory({ initialEntries: ['/'] }),
   })
   await router.load()
@@ -157,4 +163,110 @@ it('fetches a separate list when the signed-in account changes without showing t
   expect(screen.queryByText('invited-user')).not.toBeInTheDocument()
   expect(await screen.findByText('No invited users yet')).toBeVisible()
   await waitFor(() => expect(get).toHaveBeenCalledTimes(2))
+})
+
+it('shows each recharge rebate separately with the corresponding balance snapshots and isolates accounts', async () => {
+  vi.spyOn(api, 'get')
+    .mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          total: 2,
+          items: [
+            {
+              id: 1,
+              trade_no: 'order-first',
+              payer_name: 'invited-user',
+              paid_money: '100',
+              currency: 'CNY',
+              rate_bps: 500,
+              rebate_quota: 2500000,
+              balance_before: 10000000,
+              balance_after: 12500000,
+              created_at: 1700000000,
+              credited_at: 1700000001,
+              kind: 'rebate',
+              status: 'credited',
+              reason: '',
+            },
+            {
+              id: 2,
+              trade_no: 'order-second',
+              payer_name: 'invited-user',
+              paid_money: '200',
+              currency: 'CNY',
+              rate_bps: 500,
+              rebate_quota: 5000000,
+              balance_before: 12500000,
+              balance_after: 17500000,
+              created_at: 1700000100,
+              credited_at: 1700000101,
+              kind: 'rebate',
+              status: 'credited',
+              reason: '',
+            },
+          ],
+        },
+      },
+    })
+    .mockResolvedValueOnce({
+      data: { success: true, data: { total: 0, items: [] } },
+    })
+  await renderPage(true)
+  const first = (await screen.findByText('order-first')).closest('tr')
+  const second = screen.getByText('order-second').closest('tr')
+  if (!first || !second) throw new Error('Missing rebate rows')
+  expect(first).not.toBe(second)
+  const table = screen.getByRole('table')
+  expect(
+    within(table).getByRole('columnheader', { name: 'Balance before rebate' })
+  ).toBeVisible()
+  expect(
+    within(table).getByRole('columnheader', { name: 'Balance after rebate' })
+  ).toBeVisible()
+  const firstCells = within(first).getAllByRole('cell')
+  const secondCells = within(second).getAllByRole('cell')
+  expect(firstCells[6].textContent).toBe(secondCells[5].textContent)
+  expect(firstCells[5].textContent).not.toBe(firstCells[6].textContent)
+  expect(secondCells[5].textContent).not.toBe(secondCells[6].textContent)
+  i18next.addResourceBundle('zhCN', 'translation', {
+    'Recharge date': '充值时间',
+  })
+  await act(async () => {
+    await i18next.changeLanguage('zhCN')
+  })
+  expect(within(first).getByText('2023/11/15 06:13:20')).toBeVisible()
+  await act(async () => {
+    await i18next.changeLanguage('en')
+  })
+  i18next.removeResourceBundle('zhCN', 'translation')
+  act(() => {
+    useAuthStore
+      .getState()
+      .auth.setUser({ id: 8, username: 'other-inviter', role: 1 })
+  })
+  expect(screen.queryByText('order-first')).not.toBeInTheDocument()
+  expect(await screen.findByText('No recharge rebate records')).toBeVisible()
+})
+
+it.each([
+  ['en', '11/15/2023, 06:13:20'],
+  ['zhCN', '2023/11/15 06:13:20'],
+  ['zhTW', '2023/11/15\u200906:13:20'],
+  ['fr', '15/11/2023 06:13:20'],
+  ['ja', '2023/11/15 06:13:20'],
+  ['ru', '15.11.2023, 06:13:20'],
+  ['vi', '06:13:20 15/11/2023'],
+])('formats rebate dates in Beijing time for %s', (language, expected) => {
+  expect(formatRebateTimestamp(1700000000, toIntlLocale(language))).toBe(
+    expected
+  )
+  expect(formatRebateTimestamp(0, toIntlLocale(language))).toBe('-')
+})
+
+it('falls back to the runtime locale for an invalid interface language', () => {
+  expect(toIntlLocale('not_a_locale')).toBeUndefined()
+  expect(
+    formatRebateTimestamp(1700000000, toIntlLocale('not_a_locale'))
+  ).toContain('06:13:20')
 })

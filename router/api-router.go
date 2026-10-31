@@ -121,6 +121,7 @@ func SetApiRouter(router *gin.Engine) {
 				selfRoute.DELETE("/passkey", middleware.DisableCache(), controller.PasskeyDelete)
 				selfRoute.GET("/aff", controller.GetAffCode)
 				selfRoute.GET("/self/invites", controller.GetInvitedUsers)
+				selfRoute.GET("/self/referral-rebates", controller.GetSelfReferralRebates)
 				selfRoute.GET("/topup/info", controller.GetTopUpInfo)
 				selfRoute.GET("/topup/self", controller.GetUserTopUps)
 				selfRoute.POST("/topup", middleware.CriticalRateLimit(), controller.TopUp)
@@ -173,6 +174,17 @@ func SetApiRouter(router *gin.Engine) {
 				adminRoute.GET("/2fa/stats", controller.Admin2FAStats)
 				adminRoute.DELETE("/:id/2fa", controller.AdminDisable2FA)
 			}
+		}
+
+		rebateAdminRoute := apiRouter.Group("/referral-rebates")
+		rebateAdminRoute.Use(middleware.DisableCache(), middleware.AdminAuth())
+		{
+			rebateAdminRoute.GET("", controller.GetAdminReferralRebates)
+			rebateAdminRoute.GET("/daily", controller.GetAdminReferralRebateDaily)
+			rebateAdminRoute.GET("/settings", controller.GetReferralRebateSettings)
+			rebateAdminRoute.PUT("/settings", middleware.RootAuth(), middleware.CriticalRateLimit(), controller.SaveReferralRebateSettings)
+			rebateAdminRoute.POST("/:id/retry", middleware.RootAuth(), middleware.CriticalRateLimit(), controller.RetryReferralRebate)
+			rebateAdminRoute.POST("/:id/reverse", middleware.RootAuth(), middleware.CriticalRateLimit(), controller.ReverseReferralRebate)
 		}
 
 		// Subscription billing (plans, purchase, admin management)

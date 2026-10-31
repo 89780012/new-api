@@ -158,6 +158,11 @@ export function useSidebarData(badges: SidebarBadges = {}): SidebarData {
             icon: Ticket,
           },
           {
+            title: t('Recharge rebates'),
+            url: '/referral-rebates',
+            icon: Wallet,
+          },
+          {
             title: t('Subscriptions'),
             url: '/subscriptions',
             icon: CreditCard,
