@@ -746,27 +746,10 @@ For commercial licensing, please contact support@quantumnous.com
   }
 }
 
-/* AICode's public landing palette is scoped; console themes stay independent. */
+/* Landing accents inherit the active theme and preset, including portal content. */
 .aicode-shell {
-  --background: #080c10;
-  --foreground: #edf4f4;
-  --muted: #151e24;
-  --muted-foreground: #9baeb8;
-  --border: #27343c;
-  --input: #27343c;
-  --primary: #cefa69;
-  --primary-foreground: #111a0a;
-  --secondary: #18232a;
-  --secondary-foreground: #edf4f4;
-  --accent: #1c2a30;
-  --accent-foreground: #edf4f4;
-  --ring: #cefa69;
-  --card: #0e151b;
-  --card-foreground: #edf4f4;
-  --popover: #101a20;
-  --popover-foreground: #edf4f4;
-  --aicode-accent: #cefa69;
-  --aicode-cyan: #74deec;
+  --aicode-accent: var(--primary);
+  --aicode-cyan: var(--chart-2);
   background: var(--background);
   color: var(--foreground);
 }
@@ -787,9 +770,20 @@ For commercial licensing, please contact support@quantumnous.com
   inset: 0;
   pointer-events: none;
   background:
-    linear-gradient(90deg, #83a9ba08 1px, transparent 1px),
-    linear-gradient(#83a9ba08 1px, transparent 1px),
-    radial-gradient(ellipse at 82% 38%, #278b8220, transparent 55%);
+    linear-gradient(
+      90deg,
+      color-mix(in oklch, var(--foreground) 4%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      color-mix(in oklch, var(--foreground) 4%, transparent) 1px,
+      transparent 1px
+    ),
+    radial-gradient(
+      ellipse at 82% 38%,
+      color-mix(in oklch, var(--chart-2) 10%, transparent),
+      transparent 55%
+    );
   background-size:
     64px 64px,
     64px 64px,
@@ -817,7 +811,7 @@ For commercial licensing, please contact support@quantumnous.com
   height: 6px;
   border-radius: 50%;
   background: currentColor;
-  box-shadow: 0 0 14px #cefa6950;
+  box-shadow: 0 0 14px color-mix(in oklch, var(--primary) 30%, transparent);
 }
 .aicode-wordmark {
   margin: 26px 0 30px;
@@ -867,10 +861,10 @@ For commercial licensing, please contact support@quantumnous.com
 }
 .aicode-primary {
   background: var(--aicode-accent);
-  color: #111a0a;
+  color: var(--primary-foreground);
 }
 .aicode-primary:hover {
-  background: #dcff97;
+  background: color-mix(in oklch, var(--primary) 85%, var(--foreground));
 }
 .aicode-primary > span,
 .aicode-secondary > span {
@@ -899,7 +893,7 @@ For commercial licensing, please contact support@quantumnous.com
 }
 .aicode-orbit {
   position: absolute;
-  border: 1px solid #7fb0ba25;
+  border: 1px solid var(--border);
   border-radius: 50%;
 }
 .aicode-orbit-outer {
@@ -914,12 +908,12 @@ For commercial licensing, please contact support@quantumnous.com
   border-radius: 50%;
   top: 21%;
   left: 8%;
-  box-shadow: 0 0 24px #cefa69;
+  box-shadow: 0 0 24px var(--primary);
 }
 .aicode-orbit-inner {
   inset: 24%;
   border-style: dashed;
-  border-color: #cefa6935;
+  border-color: color-mix(in oklch, var(--primary) 30%, transparent);
   animation: aicode-orbit 60s linear infinite;
 }
 .aicode-wires {
@@ -927,7 +921,7 @@ For commercial licensing, please contact support@quantumnous.com
   inset: 0;
   width: 100%;
   height: 100%;
-  stroke: #74deec50;
+  stroke: color-mix(in oklch, var(--chart-2) 45%, transparent);
   stroke-width: 1;
 }
 .aicode-core {
@@ -937,12 +931,12 @@ For commercial licensing, please contact support@quantumnous.com
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  border: 1px solid #cefa6970;
+  border: 1px solid color-mix(in oklch, var(--primary) 60%, var(--border));
   border-radius: 26%;
-  background: linear-gradient(135deg, #273b27, #0d1a1d 75%);
+  background: linear-gradient(135deg, var(--accent), var(--card) 75%);
   box-shadow:
-    0 0 90px #8ae4ad15,
-    inset 0 0 30px #cefa6910;
+    0 0 90px color-mix(in oklch, var(--primary) 8%, transparent),
+    inset 0 0 30px color-mix(in oklch, var(--primary) 8%, transparent);
   transform: rotate(-8deg);
 }
 .aicode-core > span {
@@ -962,12 +956,12 @@ For commercial licensing, please contact support@quantumnous.com
   align-items: center;
   gap: 10px;
   padding: 12px 16px;
-  border: 1px solid #45616b;
+  border: 1px solid var(--input);
   border-radius: 8px;
-  background: #0f1a20;
+  background: var(--card);
   color: var(--foreground);
   font: 12px monospace;
-  box-shadow: 0 10px 30px #0005;
+  box-shadow: 0 10px 30px color-mix(in oklch, var(--foreground) 8%, transparent);
 }
 .aicode-node > span {
   font-size: 23px;
@@ -1064,7 +1058,7 @@ For commercial licensing, please contact support@quantumnous.com
   padding: 26px;
   border: 1px solid var(--border);
   border-radius: 9px;
-  background: linear-gradient(135deg, #111c22, #0b1116);
+  background: linear-gradient(135deg, var(--card), var(--background));
   transition:
     border-color 0.2s,
     transform 0.2s;
@@ -1158,17 +1152,25 @@ For commercial licensing, please contact support@quantumnous.com
   width: 45px;
   margin-left: -12px;
   border-radius: 50%;
-  border: 1px solid #74deec60;
-  background: radial-gradient(circle at 30% 30%, #74deec60, #15262d50);
+  border: 1px solid color-mix(in oklch, var(--chart-2) 60%, transparent);
+  background: radial-gradient(
+    circle at 30% 30%,
+    color-mix(in oklch, var(--chart-2) 40%, transparent),
+    var(--card)
+  );
 }
 .aicode-spectrum i:nth-child(2) {
-  border-color: #cefa6970;
-  background: radial-gradient(circle at 30% 30%, #cefa6960, #15262d50);
+  border-color: color-mix(in oklch, var(--primary) 60%, transparent);
+  background: radial-gradient(
+    circle at 30% 30%,
+    color-mix(in oklch, var(--primary) 40%, transparent),
+    var(--card)
+  );
 }
 .aicode-integration {
   padding-block: 78px;
   border-block: 1px solid var(--border);
-  background: #0b1116;
+  background: var(--card);
 }
 .aicode-integration-layout {
   display: grid;
@@ -1216,10 +1218,10 @@ For commercial licensing, please contact support@quantumnous.com
   min-width: 0;
   gap: 0;
   overflow: hidden;
-  border: 1px solid #35454f;
+  border: 1px solid var(--input);
   border-radius: 9px;
-  background: #080d12;
-  box-shadow: 0 20px 60px #0003;
+  background: var(--background);
+  box-shadow: 0 20px 60px color-mix(in oklch, var(--foreground) 8%, transparent);
 }
 .aicode-code-toolbar {
   display: flex;
@@ -1353,4 +1355,41 @@ For commercial licensing, please contact support@quantumnous.com
   .aicode-capability {
     transition: none;
   }
+}
+
+/* Shared console chrome; the semantic palette also reaches body-level dialogs. */
+.aicode-console {
+  background: var(--sidebar);
+}
+.aicode-console [data-slot='sidebar-inset'] {
+  background: var(--background);
+  box-shadow: 0 0 0 1px var(--border);
+}
+.aicode-console [data-slot='sidebar-group-label'] {
+  color: var(--muted-foreground);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+}
+.aicode-console [data-slot='sidebar-menu-button'][data-active],
+.aicode-console [data-slot='sidebar-menu-sub-button'][data-active] {
+  background: var(--sidebar-accent);
+  color: var(--sidebar-accent-foreground);
+  box-shadow: inset 2px 0 0 var(--primary);
+}
+.aicode-console [data-slot='card'] {
+  --tw-ring-color: var(--border);
+  box-shadow:
+    0 2px 8px color-mix(in oklch, var(--foreground) 3%, transparent),
+    0 0 0 1px var(--border);
+}
+.aicode-console [data-slot='table-header'] {
+  background: var(--table-header);
+}
+.aicode-console [data-slot='table-head'] {
+  color: var(--muted-foreground);
+  font-weight: 600;
+}
+.aicode-console [data-slot='table-row'][data-state='selected'] {
+  background: var(--accent);
 }

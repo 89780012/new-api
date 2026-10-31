@@ -115,6 +115,9 @@ export function AppHeader({
     <Header>
       <div className='@container/system-brand flex min-w-0 flex-1 items-center gap-1'>
         <SystemBrand variant='inline' />
+        <span className='border-primary/20 bg-primary/10 text-primary mx-2 hidden shrink-0 rounded-md border px-2 py-0.5 font-mono text-[10px] tracking-wider sm:inline-flex'>
+          AICode
+        </span>
         <SystemUpdateAction presentation='version' />
       </div>
 
