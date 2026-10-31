@@ -16,7 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { formatLocalCurrencyAmount } from '@/lib/currency'
+import {
+  formatLocalCurrencyAmount,
+  formatQuotaWithCurrency,
+} from '@/lib/currency'
 
 // Payment currencies come from each order snapshot, while wallet values use
 // the site's quota formatter. Never apply the current site's exchange rate to
@@ -27,6 +30,14 @@ export function formatRebatePayment(
   locale: string | undefined
 ): string {
   if (!amount || !currency || !Number.isFinite(Number(amount))) return '-'
+  if (currency === 'QTA') {
+    return formatQuotaWithCurrency(Number(amount), {
+      locale,
+      digitsLarge: 4,
+      digitsSmall: 6,
+      abbreviate: false,
+    })
+  }
   return `${currency} ${formatLocalCurrencyAmount(Number(amount), { showSymbol: false, locale, digitsLarge: 2, digitsSmall: 6, abbreviate: false })}`
 }
 

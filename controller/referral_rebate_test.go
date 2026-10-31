@@ -368,3 +368,165 @@ func TestReferralRebatePaymentProvidersCreditOnce(t *testing.T) {
 		})
 	}
 }
+
+func TestReferralRebateRedemptionRecordsEachCreditAndRetries(t *testing.T) {
+	db, inviter, payer := rebateTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Redemption{}))
+	_, err := model.SaveReferralRebatePolicy(true, 500, inviter.Id)
+	require.NoError(t, err)
+	first := model.Redemption{Key: "10000000000000000000000000000001", Name: "first", Quota: 50000000, Status: common.RedemptionCodeStatusEnabled}
+	second := model.Redemption{Key: "10000000000000000000000000000002", Name: "second", Quota: 100000000, Status: common.RedemptionCodeStatusEnabled}
+	require.NoError(t, db.Create(&first).Error)
+	require.NoError(t, db.Create(&second).Error)
+	amount, err := model.Redeem(first.Key, payer.Id)
+	require.NoError(t, err)
+	assert.Equal(t, first.Quota, amount)
+	_, err = model.Redeem(first.Key, payer.Id)
+	assert.Error(t, err)
+	_, err = model.SaveReferralRebatePolicy(true, 1000, inviter.Id)
+	require.NoError(t, err)
+	require.NoError(t, db.Model(&inviter).Update("quota", common.MaxWalletQuota).Error)
+	_, err = model.Redeem(second.Key, payer.Id)
+	require.NoError(t, err, "full inviter wallet must not block redemption")
+	entries, total, err := model.ListReferralRebates(model.ReferralRebateFilter{InviterID: inviter.Id}, &common.PageInfo{Page: 1, PageSize: 20})
+	require.NoError(t, err)
+	require.EqualValues(t, 2, total)
+	require.Len(t, entries, 2)
+	assert.Equal(t, "pending", entries[0].Status)
+	assert.Nil(t, entries[0].BalanceBefore)
+	assert.Equal(t, 10000000, entries[0].RebateQuota)
+	assert.Equal(t, "credited", entries[1].Status)
+	assert.Equal(t, 500, entries[1].RateBPS)
+	assert.Equal(t, 2500000, entries[1].RebateQuota)
+	require.NotNil(t, entries[1].BalanceBefore)
+	require.NotNil(t, entries[1].BalanceAfter)
+	assert.Equal(t, 10000000, *entries[1].BalanceBefore)
+	assert.Equal(t, 12500000, *entries[1].BalanceAfter)
+	assert.Equal(t, "50000000", entries[1].PaidMoney)
+	assert.Equal(t, "QTA", entries[1].Currency)
+	assert.Equal(t, fmt.Sprintf("redemption:%d", first.Id), entries[1].TradeNo)
+	serialized, err := common.Marshal(entries)
+	require.NoError(t, err)
+	assert.NotContains(t, string(serialized), first.Key, "never disclose redeemable secrets")
+	require.NoError(t, db.First(&payer, payer.Id).Error)
+	assert.Equal(t, 150000000, payer.Quota)
+	require.NoError(t, db.Model(&inviter).Update("quota", 12500000).Error)
+	model.RetryPendingReferralRebates()
+	model.RetryPendingReferralRebates()
+	require.NoError(t, db.First(&inviter, inviter.Id).Error)
+	assert.Equal(t, 22500000, inviter.Quota)
+	require.NoError(t, db.First(&entries[0], entries[0].ID).Error)
+	require.NotNil(t, entries[0].BalanceBefore)
+	require.NotNil(t, entries[0].BalanceAfter)
+	assert.Equal(t, 12500000, *entries[0].BalanceBefore)
+	assert.Equal(t, 22500000, *entries[0].BalanceAfter)
+	daily, totalDays, _, err := model.GetReferralRebateDaily(model.ReferralRebateFilter{InviterID: inviter.Id}, &common.PageInfo{Page: 1, PageSize: 20})
+	require.NoError(t, err)
+	require.Equal(t, 1, totalDays)
+	assert.Equal(t, "QTA", daily[0].Currency)
+	assert.Equal(t, "150000000", daily[0].PaidMoney)
+	assert.Equal(t, "12500000", daily[0].RebateQuota)
+	require.NoError(t, model.ReverseReferralRebate(entries[1].ID, inviter.Id, "兑换码退款"))
+	require.NoError(t, db.First(&inviter, inviter.Id).Error)
+	assert.Equal(t, 20000000, inviter.Quota)
+}
+
+func TestReferralRebateRedemptionFailuresAndConcurrency(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		enabled    bool
+		status     int
+		expires    int64
+		quota      int
+		balance    int
+		wantError  bool
+		wantStatus string
+	}{
+		{name: "disabled policy", status: common.RedemptionCodeStatusEnabled, quota: 100, wantStatus: "disabled"},
+		{name: "expired", enabled: true, status: common.RedemptionCodeStatusEnabled, expires: 1, quota: 100, wantError: true},
+		{name: "used", enabled: true, status: common.RedemptionCodeStatusUsed, quota: 100, wantError: true},
+		{name: "disabled code", enabled: true, status: common.RedemptionCodeStatusDisabled, quota: 100, wantError: true},
+		{name: "payer overflow", enabled: true, status: common.RedemptionCodeStatusEnabled, quota: 100, balance: common.MaxWalletQuota, wantError: true},
+		{name: "invalid quota", enabled: true, status: common.RedemptionCodeStatusEnabled, quota: -1, wantError: true},
+		{name: "fraction truncated", enabled: true, status: common.RedemptionCodeStatusEnabled, quota: 19, wantStatus: "zero"},
+		{name: "concurrent redemption", enabled: true, status: common.RedemptionCodeStatusEnabled, quota: 50000000, wantStatus: "credited"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, inviter, payer := rebateTestDB(t)
+			require.NoError(t, db.AutoMigrate(&model.Redemption{}))
+			_, err := model.SaveReferralRebatePolicy(tc.enabled, 500, inviter.Id)
+			require.NoError(t, err)
+			require.NoError(t, db.Model(&payer).Update("quota", tc.balance).Error)
+			code := model.Redemption{Key: "20000000000000000000000000000001", Quota: tc.quota, Status: tc.status, ExpiredTime: tc.expires}
+			require.NoError(t, db.Create(&code).Error)
+			count := 1
+			if tc.name == "concurrent redemption" {
+				count = 4
+			}
+			sqlDB, err := db.DB()
+			require.NoError(t, err)
+			if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
+				sqlDB.SetMaxOpenConns(1)
+			} else {
+				sqlDB.SetMaxOpenConns(4)
+			}
+			results := make(chan error, count)
+			var workers sync.WaitGroup
+			for range count {
+				workers.Go(func() { _, err := model.Redeem(code.Key, payer.Id); results <- err })
+			}
+			workers.Wait()
+			close(results)
+			successes := 0
+			for err := range results {
+				if err == nil {
+					successes++
+				}
+			}
+			if tc.wantError {
+				assert.Zero(t, successes)
+			} else {
+				assert.Equal(t, 1, successes)
+			}
+			entries, total, err := model.ListReferralRebates(model.ReferralRebateFilter{InviterID: inviter.Id}, &common.PageInfo{Page: 1, PageSize: 20})
+			require.NoError(t, err)
+			require.NoError(t, db.First(&payer, payer.Id).Error)
+			require.NoError(t, db.First(&inviter, inviter.Id).Error)
+			if tc.wantError {
+				assert.Zero(t, total)
+				assert.Equal(t, tc.balance, payer.Quota)
+				assert.Equal(t, 10000000, inviter.Quota)
+				require.NoError(t, db.First(&code, code.Id).Error)
+				assert.Equal(t, tc.status, code.Status, "failed credit rolls back code consumption")
+			} else {
+				require.Len(t, entries, 1)
+				assert.Equal(t, tc.wantStatus, entries[0].Status)
+				assert.Equal(t, tc.balance+tc.quota, payer.Quota)
+				assert.Equal(t, 10000000+entries[0].RebateQuota, inviter.Quota)
+			}
+		})
+	}
+}
+
+func TestReferralRebateRedemptionLedgerFailureRollsBackCredit(t *testing.T) {
+	db, inviter, payer := rebateTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Redemption{}))
+	_, err := model.SaveReferralRebatePolicy(true, 500, inviter.Id)
+	require.NoError(t, err)
+	code := model.Redemption{Key: "30000000000000000000000000000001", Quota: 10000000, Status: common.RedemptionCodeStatusEnabled}
+	require.NoError(t, db.Create(&code).Error)
+	require.NoError(t, db.Migrator().DropTable(&model.ReferralRebate{}))
+	_, err = model.Redeem(code.Key, payer.Id)
+	require.Error(t, err)
+	require.NoError(t, db.First(&payer, payer.Id).Error)
+	assert.Zero(t, payer.Quota)
+	require.NoError(t, db.First(&code, code.Id).Error)
+	assert.Equal(t, common.RedemptionCodeStatusEnabled, code.Status)
+	assert.Zero(t, code.UsedUserId)
+	assert.Zero(t, code.RedeemedTime)
+	require.NoError(t, db.AutoMigrate(&model.ReferralRebate{}))
+	_, err = model.Redeem(code.Key, payer.Id)
+	require.NoError(t, err)
+	require.NoError(t, db.First(&inviter, inviter.Id).Error)
+	assert.Equal(t, 10500000, inviter.Quota)
+}

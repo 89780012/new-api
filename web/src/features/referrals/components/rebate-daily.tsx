@@ -62,6 +62,14 @@ export function RebateDailyTable() {
     () => [
       { accessorKey: 'day', header: t('Date') },
       {
+        id: 'source',
+        header: t('Recharge source'),
+        cell: ({ row }) =>
+          row.original.currency === 'QTA'
+            ? t('Redemption code')
+            : t('Online payment'),
+      },
+      {
         accessorKey: 'inviter_name',
         header: t('Rebate recipient'),
         cell: ({ row }) => (
@@ -147,7 +155,10 @@ export function RebateDailyTable() {
               <Card key={summary.currency}>
                 <CardContent className='space-y-2 pt-4'>
                   <p className='font-medium'>
-                    {t('Selected period totals')} · {summary.currency || '-'}
+                    {t('Selected period totals')} ·{' '}
+                    {summary.currency === 'QTA'
+                      ? t('Redemption code')
+                      : summary.currency || '-'}
                   </p>
                   <dl className='grid grid-cols-2 gap-2 text-sm'>
                     <dt>{t('Recharge amount')}</dt>

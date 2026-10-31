@@ -2,6 +2,7 @@ package model
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 
 	"github.com/QuantumNous/new-api/common"
@@ -141,6 +142,7 @@ func Redeem(key string, userId int) (quota int, err error) {
 		return 0, errors.New("invalid user id")
 	}
 	redemption := &Redemption{}
+	var rebate ReferralRebate
 
 	keyCol := "`key`"
 	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
@@ -161,10 +163,11 @@ func Redeem(key string, userId int) (quota int, err error) {
 		// Compare-and-swap on status: only the transaction that flips
 		// enabled -> used may credit quota, so a concurrent redeem of the
 		// same code loses here even without a row lock (e.g. on SQLite).
+		redemption.RedeemedTime = common.GetTimestamp()
 		result := tx.Model(&Redemption{}).
 			Where("id = ? AND status = ?", redemption.Id, common.RedemptionCodeStatusEnabled).
 			Updates(map[string]any{
-				"redeemed_time": common.GetTimestamp(),
+				"redeemed_time": redemption.RedeemedTime,
 				"status":        common.RedemptionCodeStatusUsed,
 				"used_user_id":  userId,
 			})
@@ -174,11 +177,25 @@ func Redeem(key string, userId int) (quota int, err error) {
 		if result.RowsAffected == 0 {
 			return errors.New("redemption code already used")
 		}
-		return creditTopUpQuota(tx, userId, redemption.Quota, nil)
+		if err := creditTopUpQuota(tx, userId, redemption.Quota, nil); err != nil {
+			return err
+		}
+		rebate = ReferralRebate{
+			OrderKey:  fmt.Sprintf("redemption:%d", redemption.Id),
+			TradeNo:   fmt.Sprintf("redemption:%d", redemption.Id),
+			PaidMoney: strconv.Itoa(redemption.Quota), Currency: "QTA",
+			PaymentUnitPrice: "1", QuotaPerUnit: "1", CreatedAt: redemption.RedeemedTime,
+		}
+		return recordReferralRebate(tx, userId, &rebate)
 	})
 	if err != nil {
 		common.SysError(common.LogText("redemption failed: %s", err.Error()))
 		return 0, ErrRedeemFailed
+	}
+	if rebate.ID > 0 {
+		if err := DeliverReferralRebate(rebate.ID); err != nil {
+			common.SysError(common.LogText("referral rebate %d delivery failed: %v", rebate.ID, err))
+		}
 	}
 	syncCreditUserQuotaCache(userId, redemption.Quota, common.LogText("redemption"))
 	RecordLog(userId, LogTypeTopup, common.NewMessage("Topped up {{quota}} with a redemption code, code ID {{id}}", map[string]any{"quota": logger.FormatQuota(redemption.Quota), "id": redemption.Id}))

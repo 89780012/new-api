@@ -226,9 +226,9 @@ it('shows each recharge rebate separately with the corresponding balance snapsho
   ).toBeVisible()
   const firstCells = within(first).getAllByRole('cell')
   const secondCells = within(second).getAllByRole('cell')
-  expect(firstCells[6].textContent).toBe(secondCells[5].textContent)
-  expect(firstCells[5].textContent).not.toBe(firstCells[6].textContent)
-  expect(secondCells[5].textContent).not.toBe(secondCells[6].textContent)
+  expect(firstCells[7].textContent).toBe(secondCells[6].textContent)
+  expect(firstCells[6].textContent).not.toBe(firstCells[7].textContent)
+  expect(secondCells[6].textContent).not.toBe(secondCells[7].textContent)
   i18next.addResourceBundle('zhCN', 'translation', {
     'Recharge date': '充值时间',
   })
@@ -269,4 +269,44 @@ it('falls back to the runtime locale for an invalid interface language', () => {
   expect(
     formatRebateTimestamp(1700000000, toIntlLocale('not_a_locale'))
   ).toContain('06:13:20')
+})
+
+it('shows a redemption face amount in wallet units and identifies its source without disclosing the code', async () => {
+  vi.spyOn(api, 'get').mockResolvedValueOnce({
+    data: {
+      success: true,
+      data: {
+        total: 1,
+        items: [
+          {
+            id: 3,
+            trade_no: 'redemption:12',
+            payer_name: 'invited-user',
+            paid_money: '50000000',
+            currency: 'QTA',
+            rate_bps: 500,
+            rebate_quota: 2500000,
+            balance_before: 10000000,
+            balance_after: 12500000,
+            created_at: 1700000000,
+            credited_at: 1700000001,
+            kind: 'rebate',
+            status: 'credited',
+            reason: '',
+          },
+        ],
+      },
+    },
+  })
+  await renderPage(true)
+  const row = (await screen.findByText('redemption:12')).closest('tr')
+  if (!row) throw new Error('Missing redemption row')
+  expect(within(row).getByText('Redemption code')).toBeVisible()
+  const cells = within(row).getAllByRole('cell')
+  expect(cells[3].textContent).toContain('100')
+  expect(cells[3].textContent).not.toContain('50000000')
+  expect(cells[3].textContent).not.toContain('QTA')
+  expect(cells[5].textContent).toContain('5')
+  expect(cells[6].textContent).toContain('20')
+  expect(cells[7].textContent).toContain('25')
 })

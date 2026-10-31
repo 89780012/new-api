@@ -111,6 +111,14 @@ export function RebateLedger(props: { admin?: boolean }) {
         ),
       },
       {
+        id: 'source',
+        header: t('Recharge source'),
+        cell: ({ row }) =>
+          row.original.currency === 'QTA'
+            ? t('Redemption code')
+            : t('Online payment'),
+      },
+      {
         id: 'paid_money',
         header: t('Recharge amount'),
         cell: ({ row }) =>
@@ -246,7 +254,7 @@ export function RebateLedger(props: { admin?: boolean }) {
     <div className='space-y-4 pt-4'>
       <p className='text-muted-foreground text-sm'>
         {t(
-          'Each successful recharge is recorded separately. Rebates go to the inviter. Balance snapshots show the recipient wallet before and after that rebate.'
+          'Each recharge is recorded separately, including redemption codes. Code rebates use the redeemed wallet amount; online rebates use the actual payment. Balance snapshots show the inviter wallet before and after the rebate.'
         )}
       </p>
       <p className='text-muted-foreground text-xs'>

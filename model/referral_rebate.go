@@ -94,8 +94,20 @@ func settlePaidTopUp(tx *gorm.DB, topUp *TopUp, creditedQuota int, updates map[s
 	if err := creditTopUpQuota(tx, topUp.UserId, creditedQuota, updates); err != nil {
 		return err
 	}
+	return recordReferralRebate(tx, topUp.UserId, &ReferralRebate{
+		OrderKey: fmt.Sprintf("topup:%d", topUp.Id), TopUpID: topUp.Id, TradeNo: topUp.TradeNo,
+		PaidMoney: topUp.PaidMoney, Currency: topUp.PaymentCurrency,
+		PaymentUnitPrice: topUp.PaymentUnitPrice, QuotaPerUnit: topUp.PaymentQuotaPerUnit,
+		CreatedAt: topUp.CompleteTime,
+	})
+}
+
+// recordReferralRebate captures the policy and creates the durable delivery
+// record inside the transaction that credits the recharge. QTA denotes wallet
+// quota from redemption codes, not a cash payment or a foreign currency.
+func recordReferralRebate(tx *gorm.DB, payerID int, entry *ReferralRebate) error {
 	var payer User
-	if err := tx.Select("id", "username", "inviter_id").First(&payer, topUp.UserId).Error; err != nil {
+	if err := tx.Select("id", "username", "inviter_id").First(&payer, payerID).Error; err != nil {
 		return err
 	}
 	if payer.InviterId <= 0 || payer.InviterId == payer.Id {
@@ -113,15 +125,11 @@ func settlePaidTopUp(tx *gorm.DB, topUp *TopUp, creditedQuota int, updates map[s
 	if err := tx.Find(&policy, 1).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return err
 	}
-	now := topUp.CompleteTime
-	entry := ReferralRebate{
-		OrderKey: fmt.Sprintf("topup:%d", topUp.Id), TopUpID: topUp.Id, TradeNo: topUp.TradeNo,
-		InviterID: inviter.Id, InviterName: inviter.Username, PayerID: payer.Id, PayerName: payer.Username,
-		PaidMoney: topUp.PaidMoney, Currency: topUp.PaymentCurrency,
-		PaymentUnitPrice: topUp.PaymentUnitPrice, QuotaPerUnit: topUp.PaymentQuotaPerUnit,
-		RateBPS: policy.RateBPS, PolicyVersion: policy.Version, Status: "disabled", Kind: "rebate",
-		CreatedAt: now, Day: time.Unix(now, 0).In(referralRebateZone).Format("2006-01-02"),
-	}
+	entry.InviterID, entry.InviterName = inviter.Id, inviter.Username
+	entry.PayerID, entry.PayerName = payer.Id, payer.Username
+	entry.RateBPS, entry.PolicyVersion = policy.RateBPS, policy.Version
+	entry.Status, entry.Kind = "disabled", "rebate"
+	entry.Day = time.Unix(entry.CreatedAt, 0).In(referralRebateZone).Format("2006-01-02")
 	if policy.Enabled {
 		entry.Status = "pending"
 		money, moneyErr := decimal.NewFromString(entry.PaidMoney)
@@ -147,7 +155,7 @@ func settlePaidTopUp(tx *gorm.DB, topUp *TopUp, creditedQuota int, updates map[s
 			}
 		}
 	}
-	return tx.Create(&entry).Error
+	return tx.Create(entry).Error
 }
 
 func DeliverReferralRebate(id int) error {

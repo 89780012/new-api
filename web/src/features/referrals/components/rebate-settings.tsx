@@ -128,7 +128,7 @@ function RebatePolicyForm(props: { policy: RebatePolicy }) {
               controlId='enable-recharge-rebates'
               label={t('Enable recharge rebates')}
               description={t(
-                'Every successful recharge by a directly invited user rewards the inviter. Registration gifts and other balance grants are excluded.'
+                'Every online payment or redemption code recharge by a directly invited user rewards the inviter. Code rebates use the redeemed wallet amount. Registration gifts and other balance grants are excluded.'
               )}
               checked={field.value}
               onCheckedChange={field.onChange}
