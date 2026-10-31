@@ -53,6 +53,19 @@ func TestChannelStatusRoutesRegisterWithoutConflict(t *testing.T) {
 	})
 }
 
+func TestChannelListRoutesReachAuthenticationWithRelayRoutes(t *testing.T) {
+	engine := newAccessTokenScopeTestEngine(t)
+	query := "?tag_mode=false&id_sort=false&sort_by=priority&sort_order=desc&p=1&page_size=20"
+	for _, routePath := range []string{"/api/channel", "/api/channel/"} {
+		t.Run(routePath, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, routePath+query, nil))
+			require.Equal(t, http.StatusUnauthorized, recorder.Code, recorder.Body.String())
+			assert.Contains(t, recorder.Body.String(), `"code":"AUTH_UNAUTHORIZED"`)
+		})
+	}
+}
+
 func assertChannelRoutePermission(t *testing.T, method string, path string, permission authz.Permission, handler any) {
 	t.Helper()
 	for _, route := range channelPermissionRoutes {
