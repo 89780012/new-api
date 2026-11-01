@@ -63,8 +63,12 @@ export function AICodeLanding(props: AICodeLandingProps) {
               {t('AI MODEL SERVICES · BUILT FOR DEVELOPERS')}
             </p>
             <div className='aicode-wordmark' aria-hidden='true'>
+              <img
+                src='/aicode-logo.svg'
+                alt=''
+                className='size-14 rounded-2xl sm:size-16'
+              />
               AI<span>Code</span>
-              <sup>✳</sup>
             </div>
             <h1 id='aicode-title'>
               <span className='sr-only'>AICode · </span>

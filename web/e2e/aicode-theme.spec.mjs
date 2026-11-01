@@ -50,7 +50,7 @@ async function mockConsole(page) {
     if (path === '/api/status') {
       data = {
         system_name: 'New API',
-        logo: '/logo.png',
+        logo: '/aicode-logo.svg',
         version: 'v1.0.0-rc.47-aicode.2',
         quota_per_unit: 500000,
         display_in_currency: true,

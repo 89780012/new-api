@@ -30,6 +30,7 @@ import {
 import {
   STATUS_QUERY_KEY,
   ensureStatus,
+  mapStatusDataToConfig,
   statusQueryOptions,
 } from '@/lib/status-query'
 import { useSystemConfigStore } from '@/stores/system-config-store'
@@ -261,5 +262,12 @@ describe('module guard status freshness', () => {
         requireAuth: true,
       })
     }
+  )
+})
+
+test('default and legacy product logos resolve to the AICode coding icon', () => {
+  expect(mapStatusDataToConfig({}).logo).toBe('/aicode-logo.svg')
+  expect(mapStatusDataToConfig({ logo: '/logo.png' }).logo).toBe(
+    '/aicode-logo.svg'
   )
 })
