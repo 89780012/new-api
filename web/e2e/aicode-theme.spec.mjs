@@ -145,6 +145,28 @@ test('default palette keeps landing body text, code and buttons readable in both
     )
     await page.goto('/')
     await expect(page.locator('.aicode-shell')).toBeVisible()
+    const palette = await page
+      .locator('.aicode-primary')
+      .first()
+      .evaluate((element) => {
+        const canvas = document.createElement('canvas')
+        const context = canvas.getContext('2d')
+        context.fillStyle = getComputedStyle(element).backgroundColor
+        context.fillRect(0, 0, 1, 1)
+        const primary = [...context.getImageData(0, 0, 1, 1).data].slice(0, 3)
+        context.fillStyle = getComputedStyle(document.body).backgroundColor
+        context.fillRect(0, 0, 1, 1)
+        const background = [...context.getImageData(0, 0, 1, 1).data].slice(
+          0,
+          3
+        )
+        return { primary, background }
+      })
+    expect(palette.primary[2]).toBeGreaterThan(palette.primary[1])
+    expect(palette.primary[2]).toBeGreaterThan(palette.primary[0])
+    expect(
+      Math.max(...palette.background) - Math.min(...palette.background)
+    ).toBeLessThanOrEqual(12)
     for (const selector of [
       '.aicode-description',
       '.aicode-code-panel pre',
@@ -287,3 +309,43 @@ for (const width of [1440, 768, 390]) {
     expect(errors).toEqual([])
   })
 }
+
+test('referral promotion stays visible and fits mobile and desktop in both themes', async ({
+  page,
+}) => {
+  for (const width of [375, 1440]) {
+    await page.setViewportSize({ width, height: 900 })
+    for (const mode of ['light', 'dark']) {
+      await page.addInitScript(
+        (value) => localStorage.setItem('newapi:theme:v1:mode', value),
+        mode
+      )
+      await page.goto('/')
+      const promotion = page
+        .locator('.aicode-hero')
+        .getByRole('link', { name: /Get my referral link/ })
+      await expect(promotion).toBeInViewport()
+      await expect(promotion).toHaveAttribute('href', '/wallet')
+      const program = page.getByRole('region', {
+        name: 'Invite friends. Earn recharge rebates.',
+      })
+      await program.scrollIntoViewIfNeeded()
+      await expect(
+        program.getByRole('link', { name: 'Recharge rebate details' })
+      ).toBeVisible()
+      await expect(program.getByRole('listitem')).toHaveCount(3)
+      const bounds = await program.boundingBox()
+      expect(bounds.x).toBeGreaterThanOrEqual(0)
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width)
+      expect(
+        await program.evaluate(
+          (element) => element.scrollWidth <= element.clientWidth
+        )
+      ).toBe(true)
+      await page.screenshot({
+        path: `/tmp/newapi-home-${width}-${mode}.png`,
+        fullPage: true,
+      })
+    }
+  }
+})

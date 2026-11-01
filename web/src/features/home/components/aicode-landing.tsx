@@ -22,6 +22,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 
 import { AICodeQuickstart } from './aicode-quickstart'
+import { ReferralShowcase } from './referral-showcase'
 
 interface AICodeLandingProps {
   isAuthenticated: boolean
@@ -34,6 +35,27 @@ export function AICodeLanding(props: AICodeLandingProps) {
     <main id='content' className='aicode-landing'>
       <section className='aicode-hero' aria-labelledby='aicode-title'>
         <div className='aicode-grid' aria-hidden='true' />
+        <div className='aicode-wrap relative mb-8'>
+          <Link
+            to={props.isAuthenticated ? '/wallet' : '/sign-up'}
+            className='aicode-referral-surface border-primary/25 text-foreground focus-visible:ring-primary flex flex-wrap items-center justify-between gap-3 rounded-xl border px-5 py-4 focus-visible:ring-2 focus-visible:outline-none'
+          >
+            <span className='flex flex-wrap items-center gap-x-4 gap-y-1'>
+              <span className='text-primary text-sm font-semibold'>
+                {t('Invite friends. Earn recharge rebates.')}
+              </span>
+              <span className='text-muted-foreground text-sm'>
+                {t('Share your link. Grow together.')}
+              </span>
+            </span>
+            <span className='text-primary text-sm font-semibold'>
+              {props.isAuthenticated
+                ? t('Get my referral link')
+                : t('Join the referral program')}
+              <span aria-hidden='true'> ↗</span>
+            </span>
+          </Link>
+        </div>
         <div className='aicode-wrap aicode-hero-layout'>
           <div className='aicode-hero-copy'>
             <p className='aicode-eyebrow'>
@@ -143,6 +165,8 @@ export function AICodeLanding(props: AICodeLandingProps) {
           <p>{t('Model availability and pricing follow the live catalog.')}</p>
         </div>
       </section>
+
+      <ReferralShowcase isAuthenticated={props.isAuthenticated} />
 
       <section
         className='aicode-wrap aicode-capabilities'
