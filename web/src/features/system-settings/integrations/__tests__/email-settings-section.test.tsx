@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { AxiosError } from 'axios'
 import { useState, type ComponentProps } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -341,4 +342,207 @@ describe('email delivery settings', () => {
       ])
     }
   })
+})
+
+describe('test email delivery', () => {
+  it('validates the recipient before making a delivery request', async () => {
+    const request = vi.spyOn(api, 'post')
+    const user = renderEmail()
+    await user.click(screen.getByRole('button', { name: 'Send test email' }))
+    expect(await screen.findByText('Invalid email address')).toBeVisible()
+    expect(
+      screen.getByRole('textbox', { name: 'Recipient email address' })
+    ).toHaveAttribute('aria-invalid', 'true')
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it.each(['smtp', 'resend'] as const)(
+    'sends once using saved %s settings and preserves the recipient',
+    async (provider) => {
+      let complete!: (value: { data: { success: boolean } }) => void
+      const request = vi.spyOn(api, 'post').mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            complete = resolve
+          })
+      )
+      const save = vi.spyOn(api, 'put')
+      const user = renderEmail({ EmailProvider: provider })
+      await user.type(
+        screen.getByRole('textbox', { name: 'Recipient email address' }),
+        'person@example.com'
+      )
+      await user.click(screen.getByRole('button', { name: 'Send test email' }))
+      const pending = screen.getByRole('button', {
+        name: 'Sending test email...',
+      })
+      expect(pending).toBeDisabled()
+      expect(pending).toHaveAttribute('aria-busy', 'true')
+      await user.click(pending)
+      expect(request).toHaveBeenCalledTimes(1)
+      expect(request).toHaveBeenCalledWith(
+        '/api/option/email/test',
+        { recipient: 'person@example.com' },
+        { timeout: 25000 }
+      )
+      complete({ data: { success: true } })
+      expect(
+        await screen.findByText(
+          'The mail service accepted the request. Check the inbox or spam folder.'
+        )
+      ).toBeVisible()
+      expect(
+        screen.getByRole('textbox', { name: 'Recipient email address' })
+      ).toHaveValue('person@example.com')
+      expect(save).not.toHaveBeenCalled()
+    }
+  )
+
+  it('blocks testing unsaved email changes and enables testing after reverting them', async () => {
+    const user = renderEmail()
+    const host = screen.getByRole('textbox', { name: 'SMTP Host' })
+    await user.clear(host)
+    await user.type(host, 'draft.example.com')
+    expect(
+      screen.getByRole('button', { name: 'Send test email' })
+    ).toBeDisabled()
+    expect(
+      screen.getByText(
+        'Email configuration has changed. Save it before testing.'
+      )
+    ).toBeVisible()
+    await user.clear(host)
+    await user.type(host, defaults.SMTPServer)
+    expect(
+      screen.getByRole('button', { name: 'Send test email' })
+    ).toBeEnabled()
+    await user.click(screen.getByRole('radio', { name: 'Resend API' }))
+    expect(
+      screen.getByRole('button', { name: 'Send test email' })
+    ).toBeDisabled()
+  })
+
+  it('allows testing when only balance reminders change', async () => {
+    const user = renderEmail()
+    await user.click(
+      screen.getByRole('switch', { name: 'Low balance reminder' })
+    )
+    expect(
+      screen.getByRole('button', { name: 'Send test email' })
+    ).toBeEnabled()
+  })
+
+  it('shows a business failure inline without reporting success or retrying', async () => {
+    const request = vi.spyOn(api, 'post').mockResolvedValue({
+      data: {
+        success: false,
+        message_key: 'SMTP rejected the sender or recipient address.',
+      },
+    })
+    const user = renderEmail()
+    await user.type(
+      screen.getByRole('textbox', { name: 'Recipient email address' }),
+      'person@example.com'
+    )
+    await user.click(screen.getByRole('button', { name: 'Send test email' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'SMTP rejected the sender or recipient address.'
+    )
+    expect(
+      screen.queryByText(
+        'The mail service accepted the request. Check the inbox or spam folder.'
+      )
+    ).not.toBeInTheDocument()
+    expect(request).toHaveBeenCalledTimes(1)
+  })
+
+  it('submits by Enter without saving configuration', async () => {
+    const request = vi
+      .spyOn(api, 'post')
+      .mockResolvedValue({ data: { success: true } })
+    const save = vi.spyOn(api, 'put')
+    const user = renderEmail()
+    await user.type(
+      screen.getByRole('textbox', { name: 'Recipient email address' }),
+      'person@example.com{Enter}'
+    )
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(1))
+    expect(save).not.toHaveBeenCalled()
+  })
+})
+
+it('enables testing after saving only a new SMTP credential', async () => {
+  const request = vi
+    .spyOn(api, 'put')
+    .mockResolvedValue({ data: { success: true } })
+  const user = renderEmail()
+  await user.type(
+    screen.getByLabelText('Password / Access Token'),
+    'new-mail-secret'
+  )
+  expect(screen.getByRole('button', { name: 'Send test email' })).toBeDisabled()
+  await user.click(screen.getByRole('button', { name: 'Save Changes' }))
+  await waitFor(() => expect(request).toHaveBeenCalled())
+  await waitFor(() =>
+    expect(
+      screen.getByRole('button', { name: 'Send test email' })
+    ).toBeEnabled()
+  )
+  expect(screen.getByLabelText('Password / Access Token')).toHaveValue('')
+})
+
+it('reports an uncertain delivery after a network timeout and does not retry', async () => {
+  const request = vi
+    .spyOn(api, 'post')
+    .mockRejectedValue(new AxiosError('timeout', 'ECONNABORTED'))
+  const user = renderEmail()
+  await user.type(
+    screen.getByRole('textbox', { name: 'Recipient email address' }),
+    'person@example.com'
+  )
+  await user.click(screen.getByRole('button', { name: 'Send test email' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Email delivery could not be confirmed. Check the inbox before sending again.'
+  )
+  expect(request).toHaveBeenCalledTimes(1)
+})
+
+it('clears an earlier delivery result when email settings change', async () => {
+  vi.spyOn(api, 'post').mockResolvedValue({ data: { success: true } })
+  const user = renderEmail()
+  await user.type(
+    screen.getByRole('textbox', { name: 'Recipient email address' }),
+    'person@example.com'
+  )
+  await user.click(screen.getByRole('button', { name: 'Send test email' }))
+  expect(
+    await screen.findByText(
+      'The mail service accepted the request. Check the inbox or spam folder.'
+    )
+  ).toBeVisible()
+  const host = screen.getByRole('textbox', { name: 'SMTP Host' })
+  await user.clear(host)
+  await user.type(host, defaults.SMTPServer)
+  expect(
+    screen.queryByText(
+      'The mail service accepted the request. Check the inbox or spam folder.'
+    )
+  ).not.toBeInTheDocument()
+})
+
+it('explains rate limiting inline without retrying delivery', async () => {
+  const request = vi.spyOn(api, 'post').mockRejectedValue({
+    isAxiosError: true,
+    response: { status: 429, data: {} },
+  })
+  const user = renderEmail()
+  await user.type(
+    screen.getByRole('textbox', { name: 'Recipient email address' }),
+    'person@example.com'
+  )
+  await user.click(screen.getByRole('button', { name: 'Send test email' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Too many requests'
+  )
+  expect(request).toHaveBeenCalledTimes(1)
 })

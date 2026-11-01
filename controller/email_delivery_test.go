@@ -1,8 +1,10 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -10,9 +12,14 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/i18n"
+	"github.com/QuantumNous/new-api/middleware"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/go-redis/redis/v8"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
@@ -26,6 +33,7 @@ func (transport emailHTTPTransport) RoundTrip(request *http.Request) (*http.Resp
 
 func configureEmailDelivery(t *testing.T, options map[string]string) {
 	t.Helper()
+	require.NoError(t, i18n.Init())
 	common.OptionMapRWMutex.Lock()
 	original := common.OptionMap
 	common.OptionMap = options
@@ -248,4 +256,182 @@ func TestEmailKeyStatusIsDerivedAndReadOnly(t *testing.T) {
 	UpdateOption(context)
 	assert.Contains(t, response.Body.String(), `"success":false`)
 	assert.Contains(t, response.Body.String(), "read-only")
+}
+
+func TestSendTestEmailUsesSavedProviderAndFixedTemplate(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	for _, provider := range []string{"smtp", "resend"} {
+		t.Run(provider, func(t *testing.T) {
+			configureEmailDelivery(t, map[string]string{"EmailProvider": provider, "ResendApiKey": "test-key", "ResendFrom": "sender@example.com"})
+			var mailbox *securityMailbox
+			if provider == "smtp" {
+				mailbox = newSecurityMailbox(t)
+			}
+			calls := 0
+			http.DefaultTransport = emailHTTPTransport(func(request *http.Request) (*http.Response, error) {
+				calls++
+				var payload struct {
+					To      []string `json:"to"`
+					Subject string   `json:"subject"`
+					HTML    string   `json:"html"`
+				}
+				require.NoError(t, common.DecodeJson(request.Body, &payload))
+				assert.Equal(t, []string{"person@example.com"}, payload.To)
+				assert.Contains(t, payload.Subject, "Test email")
+				assert.Contains(t, payload.HTML, "resend")
+				assert.NotContains(t, payload.HTML, "injected content")
+				return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"id":"test"}`))}, nil
+			})
+			response := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(response)
+			c.Request = httptest.NewRequest("POST", "/api/option/email/test", strings.NewReader(`{"recipient":"person@example.com","content":"injected content"}`))
+			c.Request.Header.Set("Accept-Language", "en")
+			SendTestEmail(c)
+			assert.Contains(t, response.Body.String(), `"success":true`)
+			if provider == "resend" {
+				assert.Equal(t, 1, calls)
+				return
+			}
+			mailbox.mutex.Lock()
+			defer mailbox.mutex.Unlock()
+			require.Len(t, mailbox.mail["person@example.com"], 1)
+			assert.Contains(t, mailbox.mail["person@example.com"][0], "smtp")
+			assert.NotContains(t, mailbox.mail["person@example.com"][0], "injected content")
+			assert.Zero(t, calls)
+		})
+	}
+}
+
+func TestSendTestEmailRejectsInvalidRecipientsWithoutDelivery(t *testing.T) {
+	configureEmailDelivery(t, map[string]string{"EmailProvider": "resend", "ResendApiKey": "test-key", "ResendFrom": "sender@example.com"})
+	http.DefaultTransport = emailHTTPTransport(func(*http.Request) (*http.Response, error) {
+		t.Fatal("invalid recipient must not send")
+		return nil, errors.New("unexpected delivery")
+	})
+	for _, recipient := range []string{"", "invalid", "a@example.com;b@example.com", "a@example.com,b@example.com", "Name <a@example.com>", "a@example.com\r\nBcc: b@example.com", "a@example.com\x00"} {
+		t.Run(recipient, func(t *testing.T) {
+			body, err := common.Marshal(map[string]string{"recipient": recipient})
+			require.NoError(t, err)
+			response := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(response)
+			c.Request = httptest.NewRequest("POST", "/api/option/email/test", strings.NewReader(string(body)))
+			SendTestEmail(c)
+			assert.Contains(t, response.Body.String(), `"success":false`)
+			assert.Contains(t, response.Body.String(), "Invalid email address")
+		})
+	}
+}
+
+func TestSendTestEmailReportsFailureWithoutSecretsOrRetry(t *testing.T) {
+	configureEmailDelivery(t, map[string]string{"EmailProvider": "resend", "ResendApiKey": "test-key", "ResendFrom": "sender@example.com"})
+	calls := 0
+	http.DefaultTransport = emailHTTPTransport(func(*http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{StatusCode: 401, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"message":"test-key"}`))}, nil
+	})
+	response := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(response)
+	c.Request = httptest.NewRequest("POST", "/api/option/email/test", strings.NewReader(`{"recipient":"person@example.com"}`))
+	SendTestEmail(c)
+	assert.Contains(t, response.Body.String(), `"success":false`)
+	assert.Contains(t, response.Body.String(), "401")
+	assert.NotContains(t, response.Body.String(), "test-key")
+	assert.Equal(t, 1, calls)
+}
+
+func TestSendTestEmailRequiresRootAndLimitsEachOperator(t *testing.T) {
+	user, identity := setupSecurityEnrollmentTest(t)
+	previousRDB := common.RDB
+	redisServer := miniredis.RunT(t)
+	common.RDB = redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
+	common.RedisEnabled = true
+	t.Cleanup(func() { _ = common.RDB.Close(); common.RDB = previousRDB })
+	configureEmailDelivery(t, map[string]string{"EmailProvider": "resend", "ResendApiKey": "test-key", "ResendFrom": "sender@example.com"})
+	calls := 0
+	http.DefaultTransport = emailHTTPTransport(func(*http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"id":"test"}`))}, nil
+	})
+	router := gin.New()
+	router.POST("/api/option/email/test", middleware.RootAuth(), middleware.EmailTestRateLimit(), SendTestEmail)
+	token, _, err := service.IssueAccessToken(identity)
+	require.NoError(t, err)
+	for _, credential := range []string{"", token} {
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest("POST", "/api/option/email/test", strings.NewReader(`{"recipient":"person@example.com"}`))
+		if credential != "" {
+			request.Header.Set("Authorization", "Bearer "+credential)
+		}
+		router.ServeHTTP(response, request)
+		assert.Contains(t, []int{401, 403}, response.Code)
+	}
+	assert.Zero(t, calls)
+	require.NoError(t, model.DB.Model(user).Update("role", common.RoleRootUser).Error)
+	require.NoError(t, model.PublishUserAuthCache(user.Id))
+	for attempt := range 4 {
+		response := httptest.NewRecorder()
+		request := httptest.NewRequest("POST", "/api/option/email/test", strings.NewReader(`{"recipient":"person@example.com"}`))
+		request.Header.Set("Authorization", "Bearer "+token)
+		router.ServeHTTP(response, request)
+		if attempt < 3 {
+			assert.Equal(t, 200, response.Code)
+			assert.Contains(t, response.Body.String(), `"success":true`)
+		} else {
+			assert.Equal(t, 429, response.Code)
+			assert.NotEmpty(t, response.Header().Get("Retry-After"))
+		}
+	}
+
+	other := &model.User{Username: "other-mail-operator", AffCode: "email-test-other", Role: common.RoleRootUser, Status: common.UserStatusEnabled, Group: "default", AuthVersion: 1}
+	require.NoError(t, model.DB.Create(other).Error)
+	bundle, err := service.CreateLoginSession(other.Id, "password", "127.0.0.1", "test-mail")
+	require.NoError(t, err)
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest("POST", "/api/option/email/test", strings.NewReader(`{"recipient":"other@example.com"}`))
+	request.Header.Set("Authorization", "Bearer "+bundle.AccessToken)
+	router.ServeHTTP(response, request)
+	assert.Equal(t, 200, response.Code)
+	assert.Contains(t, response.Body.String(), `"success":true`)
+	assert.Equal(t, 4, calls)
+}
+
+func TestSendTestEmailSanitizesSMTPAuthenticationFailure(t *testing.T) {
+	configureEmailDelivery(t, map[string]string{"EmailProvider": "smtp"})
+	newSecurityMailbox(t)
+	// An SMTP peer can put arbitrary text into a failure response.
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer listener.Close()
+	common.SMTPPort = listener.Addr().(*net.TCPAddr).Port
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		_, _ = io.WriteString(conn, "535 account-password-must-not-leak\r\n")
+	}()
+	response := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(response)
+	c.Request = httptest.NewRequest("POST", "/api/option/email/test", strings.NewReader(`{"recipient":"person@example.com"}`))
+	SendTestEmail(c)
+	<-done
+	assert.Contains(t, response.Body.String(), `"success":false`)
+	assert.Contains(t, response.Body.String(), "SMTP authentication failed")
+	assert.NotContains(t, response.Body.String(), "account-password-must-not-leak")
+}
+
+func TestSendTestEmailReportsCanceledDeliveryAsUnconfirmed(t *testing.T) {
+	configureEmailDelivery(t, map[string]string{"EmailProvider": "smtp"})
+	newSecurityMailbox(t)
+	response := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(response)
+	parent, cancel := context.WithCancel(context.Background())
+	cancel()
+	c.Request = httptest.NewRequest("POST", "/api/option/email/test", strings.NewReader(`{"recipient":"person@example.com"}`)).WithContext(parent)
+	SendTestEmail(c)
+	assert.Contains(t, response.Body.String(), `"success":false`)
+	assert.Contains(t, response.Body.String(), "Email delivery could not be confirmed")
 }

@@ -37,7 +37,7 @@ func ValidateResendConfiguration(apiKey, from string) error {
 // OWASP Authentication / Session Management / Forgot Password cheat sheets:
 // do not expose credentials, verification codes or reset links in errors/logs.
 // This transport does not change token expiry, single-use or session rules.
-func sendResendEmail(apiKey, from, subject, receiver, content string) error {
+func sendResendEmail(parent context.Context, apiKey, from, subject, receiver, content string) error {
 	if err := ValidateResendConfiguration(apiKey, from); err != nil {
 		return err
 	}
@@ -63,7 +63,7 @@ func sendResendEmail(apiKey, from, subject, receiver, content string) error {
 	if err != nil {
 		return NewMessage("Resend request failed")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(parent, 20*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.resend.com/emails", bytes.NewReader(payload))
 	if err != nil {
@@ -73,19 +73,13 @@ func sendResendEmail(apiKey, from, subject, receiver, content string) error {
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := resendEmailClient.Do(req)
 	if err != nil {
-		SysError(LogText("Resend request failed: error=%q", err))
+		SysError(LogText("Resend request failed"))
 		return NewMessage("Resend request failed")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		// The reason (unverified domain, invalid key, quota) goes to the server
-		// log only, because the error may reach whoever asked for the email.
-		var failure struct {
-			Name    string `json:"name"`
-			Message string `json:"message"`
-		}
-		_ = DecodeJson(io.LimitReader(resp.Body, 4096), &failure)
-		SysError(LogText("Resend rejected the email: status=%d name=%q message=%q", resp.StatusCode, failure.Name, failure.Message))
+		// Do not retain arbitrary provider text, which may echo credentials or content.
+		SysError(LogText("Resend rejected the email: status=%d", resp.StatusCode))
 		return NewMessage("Resend email delivery failed (HTTP {{status}})", map[string]any{"status": resp.StatusCode})
 	}
 	var result struct {

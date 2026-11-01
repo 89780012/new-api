@@ -92,3 +92,7 @@ channel.upstream_update_added_models: "新增模型示例（展示 {{.Shown}}/{{
 channel.upstream_update_removed_models: "删除模型示例（展示 {{.Shown}}/{{.Total}}）：{{.Models}}"
 channel.upstream_update_failed_channels: "失败渠道 ID（展示 {{.Shown}}/{{.Total}}）：{{.Ids}}"
 channel.upstream_update_more_omitted: "（其余 {{.Count}} 个已省略）"
+
+email.test.subject: "[{{.SystemName}}] 测试邮件"
+
+email.test.body: "<p>这是一封由 {{.SystemName}} 管理员主动发送的测试邮件。</p><p>收到此邮件，说明本次邮件投递成功。</p><p>发送方式：{{.Provider}}<br>发送时间：{{.Time}}</p><p>此邮件仅用于验证邮件配置，无需回复。</p>"

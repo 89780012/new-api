@@ -91,3 +91,7 @@ channel.upstream_update_added_models: "Added model examples (showing {{.Shown}}/
 channel.upstream_update_removed_models: "Removed model examples (showing {{.Shown}}/{{.Total}}): {{.Models}}"
 channel.upstream_update_failed_channels: "Failed channel IDs (showing {{.Shown}}/{{.Total}}): {{.Ids}}"
 channel.upstream_update_more_omitted: " ({{.Count}} more omitted)"
+
+email.test.subject: "[{{.SystemName}}] Test email"
+
+email.test.body: "<p>This test email was sent by an administrator of {{.SystemName}}.</p><p>Receiving it confirms that this email was delivered successfully.</p><p>Sending method: {{.Provider}}<br>Sent at: {{.Time}}</p><p>This email only verifies the email configuration. No reply is needed.</p>"

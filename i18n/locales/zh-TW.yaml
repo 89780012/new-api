@@ -92,3 +92,7 @@ channel.upstream_update_added_models: "新增模型範例（顯示 {{.Shown}}/{{
 channel.upstream_update_removed_models: "刪除模型範例（顯示 {{.Shown}}/{{.Total}}）：{{.Models}}"
 channel.upstream_update_failed_channels: "失敗管道 ID（顯示 {{.Shown}}/{{.Total}}）：{{.Ids}}"
 channel.upstream_update_more_omitted: "（其餘 {{.Count}} 個已省略）"
+
+email.test.subject: "[{{.SystemName}}] 測試郵件"
+
+email.test.body: "<p>這是一封由 {{.SystemName}} 管理員主動傳送的測試郵件。</p><p>收到此郵件，表示本次郵件投遞成功。</p><p>傳送方式：{{.Provider}}<br>傳送時間：{{.Time}}</p><p>此郵件僅用於驗證郵件設定，無需回覆。</p>"

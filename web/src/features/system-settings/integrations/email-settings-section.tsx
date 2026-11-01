@@ -55,6 +55,7 @@ import {
   parseResendSender,
   type EmailFormValues,
 } from './email-settings-schema'
+import { EmailTestSection } from './email-test-section'
 
 type EmailSettingsSectionProps = {
   defaultValues: Omit<EmailFormValues, 'ResendSenderName'>
@@ -227,7 +228,12 @@ export function EmailSettingsSection({
           form.setValue('ResendKeyConfigured', true)
         }
       }
-      form.setValue('ResendApiKey', '')
+      form.reset({
+        ...values,
+        SMTPToken: '',
+        ResendApiKey: '',
+        ResendKeyConfigured: form.getValues('ResendKeyConfigured'),
+      })
     } catch (error) {
       handleServerError(error)
     }
@@ -583,6 +589,11 @@ export function EmailSettingsSection({
               />
             </>
           )}
+          <EmailTestSection
+            provider={defaultValues.EmailProvider}
+            isSaving={isSaving}
+          />
+
           <SettingsControlGroup>
             <FormField
               control={form.control}

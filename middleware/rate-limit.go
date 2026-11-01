@@ -268,3 +268,8 @@ func SearchRateLimit() func(c *gin.Context) {
 	}
 	return userRateLimitFactory(common.SearchRateLimitNum, common.SearchRateLimitDuration, "SR")
 }
+
+// EmailTestRateLimit always bounds test delivery, independently of login limits.
+func EmailTestRateLimit() gin.HandlerFunc {
+	return userRateLimitFactory(3, 60, "email-test")
+}

@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
+import { requireServerSuccess } from '@/lib/server-error-message'
 
 import type {
   ConfirmPaymentComplianceResponse,
@@ -124,4 +125,13 @@ export async function fetchUpstreamRatios(request: FetchUpstreamRatiosRequest) {
     request
   )
   return res.data
+}
+
+export async function sendTestEmail(request: { recipient: string }) {
+  const res = await api.post<UpdateOptionResponse>(
+    '/api/option/email/test',
+    request,
+    { timeout: 25000 }
+  )
+  return requireServerSuccess(res.data)
 }

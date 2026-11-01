@@ -404,19 +404,22 @@ func TestNewSMTPClientHonorsExplicitStartTLSWhenPortIs465(t *testing.T) {
 }
 
 func TestNewSMTPClientKeepsImplicitTLSForLegacyPort465(t *testing.T) {
-	server := newFakeImplicitTLSSMTPServer(t)
-	defer server.close()
-	withSMTPSettings(t)
-
-	SMTPServer = server.host
-	SMTPPort = 465
-	SMTPSSLEnabled = false
-	SMTPStartTLSEnabled = false
-	SMTPInsecureSkipVerify = true
-
-	client, err := newSMTPClient(fmt.Sprintf("%s:%d", server.host, server.port))
-	require.NoError(t, err)
-	defer client.Close()
+	for _, explicitSSL := range []bool{false, true} {
+		t.Run(fmt.Sprintf("explicitSSL=%t", explicitSSL), func(t *testing.T) {
+			server := newFakeImplicitTLSSMTPServer(t)
+			defer server.close()
+			withSMTPSettings(t)
+			SMTPServer = server.host
+			SMTPPort = 465
+			SMTPSSLEnabled = explicitSSL
+			// Legacy installations can have both options set; implicit TLS wins.
+			SMTPStartTLSEnabled = explicitSSL
+			SMTPInsecureSkipVerify = true
+			client, err := newSMTPClient(fmt.Sprintf("%s:%d", server.host, server.port))
+			require.NoError(t, err)
+			defer client.Close()
+		})
+	}
 }
 
 func TestSendEmailSkipsAuthWhenCredentialsAreEmpty(t *testing.T) {
